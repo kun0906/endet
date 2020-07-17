@@ -3,7 +3,12 @@
 # Architecture:
    
     - examples/: 
-        includes toy examples and datasets for you to play with it 
+        - data:
+            input data 
+        - out:
+            all output data 
+        app1_main.py: main function
+         
     - features/: 
         
     - model/: 
