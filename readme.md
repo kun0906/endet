@@ -1,4 +1,4 @@
-### Abnormal encryption detection (endet)
+### Abnormal detection 
 
 # Architecture:
    
@@ -7,15 +7,16 @@
             input data 
         - out:
             all output data 
-        app1_main.py: main function
+        rnn_main_single.py: main function
          
-    - features/: 
+    - pcap/:  pcap process
         
-    - model/: 
+    - model/: rnn
 
-    - utils/: 
+    - util/: 
         includes common functions (such as load data and dump data)
-    - visul/: 
+    
+    - visual/: 
         includes visualization functions
    
     - readme.md
@@ -24,5 +25,5 @@
 
 
 # Todo
-## Phase 1: features extraction and pcap data analysis
+
     
