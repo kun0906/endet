@@ -8,7 +8,7 @@ import numpy as np
 import sklearn
 import torch
 import torch.nn as nn
-import torchsummary
+#import torchsummary
 from sklearn import metrics
 from sklearn.metrics import roc_curve
 from torch.autograd import Variable
@@ -111,7 +111,7 @@ class ODCNN(nn.Module):  # one dimension CNN
 
 
 class LSTMModel(nn.Module):
-    def __init__(self, in_dim, hid_dim, n_layers, out_dim, cnn_flg=True, bias=False):
+    def __init__(self, in_dim, hid_dim, n_layers, out_dim, cnn_flg=False, bias=False):
         """LSTM model, not a lstm cell
 
         Parameters
@@ -142,7 +142,7 @@ class LSTMModel(nn.Module):
             # convonluation layers is 1 + n_layers (2)
             out_dim_cnn = 100
             self.odcnn = ODCNN(in_dim=in_dim, out_dim=out_dim_cnn, n_layers=2, kernel_size=5, stride=3, bias=bias)
-            print(f'{torchsummary.summary(self.odcnn, input_size=(in_dim,))}')
+            #print(f'{torchsummary.summary(self.odcnn, input_size=(in_dim,))}')
             # LSTM
 
             self.lstm = nn.LSTM(input_size=out_dim_cnn, hidden_size=hid_dim,
@@ -212,7 +212,7 @@ class LSTMModel(nn.Module):
 
             # out.size() --> 10, 10
             out = self.fc2(out)
-            out = self.leakyrelu(out)
+            out = self.sigmoid(out)
 
             outs.append(out)
 
@@ -245,6 +245,7 @@ def split_instance(X, y):
         v.append(_x)
         new_Xs.append(v)
         new_ys.append(y)
+    #print("length:"+str(len(new_Xs)))
 
     return new_Xs, new_ys
 
@@ -327,8 +328,8 @@ class RNN:
         c[(abs(c) < eps) & (c < 0)] = -eps
         c[(abs(c) < eps) & (c > 0)] = eps
 
-        print(f'centers: {c}')
-        return c
+        print(f'centers: {c*3}')
+        return c*3
 
     def train(self, X_train, y_train=None, X_val=None, y_val=None, split=True):
         """Fit the lstm model
@@ -350,6 +351,7 @@ class RNN:
         """
         if split:
             # split each train instance
+            print("len的长度：",len(X_train))
             new_X_train = []
             new_y_train = []
             for x, y in zip(X_train, y_train):
@@ -434,11 +436,11 @@ class RNN:
 
         # get the normal threshold from train set
         self.R, self.normal_dists = self.get_normal_thres(X_train, q=0.9)
-        print(f'normal_thres: {np.quantile(self.normal_dists, q=[0.1, 0.3, 0.5, 0.7, 0.9, 0.95])} '
+        print(f'normal_thres: {np.percentile(self.normal_dists, q=[0.1, 0.3, 0.5, 0.7, 0.9, 0.95])} '
               f'when q=[0.1, 0.3, 0.5, 0.7, 0.9, 0.95]')
         print(f'R (normal_thres): {self.R} when q=0.9')
         self.norm_qs_lst = [0.5, 0.6, 0.7, 0.8, 0.9, 1]
-        self.norm_thre_lst = np.quantile(self.normal_dists, q=self.norm_qs_lst)
+        self.norm_thre_lst = np.percentile(self.normal_dists, q=100*self.norm_qs_lst)
 
     def get_normal_thres(self, X_train, q=0.9):
         """Get the normal threshold from train set
@@ -464,7 +466,9 @@ class RNN:
             dists = torch.sum((outputs.cpu() - self.centers.cpu()) ** 2, dim=1).data.numpy()
         else:
             dists = torch.sum((outputs - self.centers) ** 2, dim=1).data.numpy()
-        R = np.quantile(dists, q)
+        print(np.percentile(outputs.data.numpy(), q=[v*100 for v in [0., 0.1, 0.2, 0.5, 0.7, 0.9, 0.95, 1]]))
+        print(np.percentile(dists, q=[v*100 for v in [0., 0.1, 0.2, 0.5, 0.7, 0.9, 0.95, 1]]))    
+        R = np.percentile(dists, 100*q)
 
         return R, dists
 
@@ -510,7 +514,7 @@ class RNN:
 
             # Total correct predictions
             # predicted = R[R > self.normal_thres ]
-            predicted = Tensor([1 if v > self.R else 0 for v in dists])
+            predicted = Tensor([1 if v < self.R else 0 for v in dists])
             if torch.cuda.is_available():
                 correct += (predicted.cpu() == labels.cpu()).sum()
             else:
@@ -533,6 +537,7 @@ class RNN:
         -------
 
         """
+        find = False
         for i in range(len(self.norm_thre_lst)):
             if i == 0 and dist_x < self.norm_thre_lst[0]:
                 score = dist_x
@@ -566,7 +571,7 @@ class RNN:
 
         y_test:
 
-        split: True
+        split: True 
             split each instance into subflows
 
         Returns
@@ -608,19 +613,30 @@ class RNN:
                 outputs.append(res)
 
         results = []
-        R = np.quantile(self.normal_dists, q=0.9)
+        R = np.percentile(self.normal_dists, q=90)
         succeeded_flows = []
         failed_flows = []
 
         for vs in outputs:
             find_flg = False
             _scores = []
+            k = 1
+            v_b = 0
             for j, v in enumerate(vs):  # res := [subflow1_res, subflow2_res,...] (for each flow)
                 _score, _confidence = self.score_function(v)
                 _scores.append([_score, _confidence])
+                ###########这里粗暴break有问题
                 if v > R:
                     find_flg = True
                     break
+                #v_b = v_b+v*k
+                #print(v)
+                #print(torch.sigmoid(torch.Tensor([v_b])))
+                # if torch.sigmoid(torch.Tensor([v_b]))>=0.9999:
+                #     find_flg = True
+                #     break 
+                k+=1
+            #print(k)
 
             res = {'needed_ptks': j + 1, 'R': R, 'prob': v, 'find_flg': find_flg, 'time': 0, '_scores': _score}
             results.append(res)
