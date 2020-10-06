@@ -101,8 +101,8 @@ def load_flow_data(overwrite=False, random_state=100, full_flow=True):
         # # # # # # #
         # # # # # # 'DS20_PU_SMTV/DS21-srcIP_10.42.0.1',
         # # # # # # # #
-        'DS40_CTU_IoT/DS41-srcIP_10.0.2.15',
-        # 'DS40_CTU_IoT/DS42-srcIP_192.168.1.196',
+        #'DS40_CTU_IoT/DS41-srcIP_10.0.2.15',
+         'DS40_CTU_IoT/DS42-srcIP_192.168.1.196',
         # # # # #
         # # # # # # 'DS50_MAWI_WIDE/DS51-srcIP_202.171.168.50',
         # # # 'DS50_MAWI_WIDE/DS51-srcIP_202.171.168.50',
@@ -119,7 +119,7 @@ def load_flow_data(overwrite=False, random_state=100, full_flow=True):
         #
         # # # # #
         # # # # # # 'DS60_UChi_IoT/DS61-srcIP_192.168.143.20',
-         #'DS60_UChi_IoT/DS62-srcIP_192.168.143.42',
+        # 'DS60_UChi_IoT/DS62-srcIP_192.168.143.42',
         # # # # 'DS60_UChi_IoT/DS63-srcIP_192.168.143.43',
         # # # # 'DS60_UChi_IoT/DS64-srcIP_192.168.143.48'
         #
@@ -128,7 +128,7 @@ def load_flow_data(overwrite=False, random_state=100, full_flow=True):
 
     dataset_name = datasets[0]
     print(f'dataset: {dataset_name}')
-    in_dir = '.'
+    in_dir = 'data/data_reprst/pcaps'
     if dataset_name == 'DS40_CTU_IoT/DS42-srcIP_192.168.1.196':
         in_norm_file = f'{in_dir}/{dataset_name}/2019-01-09-22-46-52-src_192.168.1.196_CTU_IoT_CoinMiner_anomaly.pcap'
         in_abnorm_file = f'{in_dir}/{dataset_name}/2018-12-21-15-50-14-src_192.168.1.195-CTU_IoT_Mirai_normal.pcap'
@@ -180,9 +180,7 @@ def load_flow_data(overwrite=False, random_state=100, full_flow=True):
     X_abnorm = raw2features(load_data(out_abnorm_file), header=False)
     y_abnorm = [1] * len(X_abnorm)
 
-    print(len(X_norm), len(y_norm), len(X_abnorm), len(y_abnorm))
-
-    return split_train_test( X_abnorm, y_abnorm,X_norm, y_norm, random_state)
+    return split_train_test(X_norm, y_norm, X_abnorm, y_abnorm, random_state)
 
 
 def split_train_test(X_norm, y_norm, X_abnorm, y_abnorm, random_state=100):
@@ -202,13 +200,12 @@ def split_train_test(X_norm, y_norm, X_abnorm, y_abnorm, random_state=100):
     """
 
     # X_norm = sklearn.utils.shuffle(X_norm, random_state)
-    random.Random(random_state).shuffle(X_norm)
+    random.Random(random_state).shuffle(X_norm)  #注意此处打乱数据的作用
     size = int(len(y_norm) // 2) if len(y_norm) <= len(y_abnorm) else min(400, len(y_abnorm))
     X_test = X_norm[-size:] + X_abnorm[:size]
     y_test = y_norm[-size:] + y_abnorm[:size]
     X_train = X_norm[:-size]
     y_train = y_norm[:-size]
-    print(size)
     print(f'X_train: {len(X_train)}, X_test: {len(X_test)}')
 
     return X_train, y_train, X_test, y_test
