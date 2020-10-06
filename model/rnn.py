@@ -1,5 +1,9 @@
 """RNN includes LSTM and GRU
 
+normal:0
+abnormal:1
+
+
 """
 # Author: kun.bj@outlook.com
 # license: xxx
@@ -14,6 +18,7 @@ from sklearn.metrics import roc_curve
 from torch.autograd import Variable
 
 from util.plot import plot_data
+import matplotlib.pyplot as plt 
 
 RANDOM_STATE = 100
 
@@ -200,6 +205,7 @@ class LSTMModel(nn.Module):
 
             # (batch_size, seq_length, in_dim)
             _x = _x.view(1, _x.shape[0], _x.shape[1])
+            #print(f'i: {i}, _x.shape: {_x.shape}')
             outputs, (h_out, c_out) = self.lstm(_x, (h0, c0))
 
             # only use the top h_out of the last hidden layer, i.e., h_out[-1]
@@ -384,7 +390,9 @@ class RNN:
 
         # get centers
         self.centers = self.init_center_c(train_set, self.model)
-
+        val_accs = []
+        val_aucs = []
+        Rs = []
         for epoch in range(self.n_epochs):
             # shuffle the train set in each epoch
             train_loader = sklearn.utils.shuffle(train_set, random_state=epoch)
@@ -433,7 +441,24 @@ class RNN:
 
                 # turn on the model training mode again.
                 self.model.train()
-
+                val_accs.append(self.val_acc)
+                val_aucs.append(self.val_auc)
+                Rs.append(self.R)
+        print("acc",val_accs)
+        plt.figure(1)
+        print(val_accs)
+        plt.title('ACC')
+        plt.plot(val_accs)
+        
+        #plt.cla()
+        plt.figure(2)
+        plt.title('AUC')
+        plt.plot(val_aucs)
+        #plt.cla()
+        plt.figure(3)
+        plt.title('R')
+        plt.plot(Rs)
+        #plt.cla()
         # get the normal threshold from train set
         self.R, self.normal_dists = self.get_normal_thres(X_train, q=0.9)
         print(f'normal_thres: {np.percentile(self.normal_dists, q=[0.1, 0.3, 0.5, 0.7, 0.9, 0.95])} '
@@ -466,8 +491,8 @@ class RNN:
             dists = torch.sum((outputs.cpu() - self.centers.cpu()) ** 2, dim=1).data.numpy()
         else:
             dists = torch.sum((outputs - self.centers) ** 2, dim=1).data.numpy()
-        print(np.percentile(outputs.data.numpy(), q=[v*100 for v in [0., 0.1, 0.2, 0.5, 0.7, 0.9, 0.95, 1]]))
-        print(np.percentile(dists, q=[v*100 for v in [0., 0.1, 0.2, 0.5, 0.7, 0.9, 0.95, 1]]))    
+        #print(np.percentile(outputs.data.numpy(), q=[v*100 for v in [0., 0.1, 0.2, 0.5, 0.7, 0.9, 0.95, 1]]))
+        #print(np.percentile(dists, q=[v*100 for v in [0., 0.1, 0.2, 0.5, 0.7, 0.9, 0.95, 1]]))    
         R = np.percentile(dists, 100*q)
 
         return R, dists
@@ -617,6 +642,12 @@ class RNN:
         succeeded_flows = []
         failed_flows = []
 
+        print("len of outputs:",len(outputs))
+        with open(r'D:\研一\异常流量检测\result.txt','a')as f:
+            for i in outputs:
+                f.write(str(i)+'\n')
+        #print("outputs:",outputs)
+
         for vs in outputs:
             find_flg = False
             _scores = []
@@ -626,15 +657,16 @@ class RNN:
                 _score, _confidence = self.score_function(v)
                 _scores.append([_score, _confidence])
                 ###########这里粗暴break有问题
-                if v > R:
-                    find_flg = True
-                    break
-                #v_b = v_b+v*k
+                # if v > R:
+                #     find_flg = True
+                #     break
+                v_b = v_b+v*k
                 #print(v)
                 #print(torch.sigmoid(torch.Tensor([v_b])))
-                # if torch.sigmoid(torch.Tensor([v_b]))>=0.9999:
-                #     find_flg = True
-                #     break 
+                print(torch.Tensor([v_b]))
+                if torch.sigmoid(torch.Tensor([v_b]))<=0.1:
+                    find_flg = True
+                    break 
                 k+=1
             #print(k)
 
@@ -659,15 +691,17 @@ class RNN:
         aucs = []
         accs = []
         part_results = np.asarray([v[:min_flow_len] for v in outputs])
+        
         for i in range(min_flow_len):
             fpr, tpr, _ = roc_curve(y_test, part_results[:, i], pos_label=1)
             auc = metrics.auc(fpr, tpr)
             aucs.append(auc)
 
-            y_pred = [1 if v > self.R else 0 for v in part_results[:, i]]
+            y_pred = [1 if v < self.R else 0 for v in part_results[:, i]]
             acc = metrics.accuracy_score(y_test, y_pred)
+            print(acc)
             accs.append(acc)
-
+        print(accs)
         plot_data(range(1, min_flow_len + 1), aucs, xlabel='num of packets in each flow', ylabel='auc', title='')
         plot_data(range(1, min_flow_len + 1), accs, xlabel='num of packets in each flow', ylabel='accuracy', title='')
 
