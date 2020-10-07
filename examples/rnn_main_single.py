@@ -101,8 +101,8 @@ def load_flow_data(overwrite=False, random_state=100, full_flow=True):
         # # # # # # #
         # # # # # # 'DS20_PU_SMTV/DS21-srcIP_10.42.0.1',
         # # # # # # # #
-        'DS40_CTU_IoT/DS41-srcIP_10.0.2.15',
-        # 'DS40_CTU_IoT/DS42-srcIP_192.168.1.196',
+        #'DS40_CTU_IoT/DS41-srcIP_10.0.2.15',
+         'DS40_CTU_IoT/DS42-srcIP_192.168.1.196',
         # # # # #
         # # # # # # 'DS50_MAWI_WIDE/DS51-srcIP_202.171.168.50',
         # # # 'DS50_MAWI_WIDE/DS51-srcIP_202.171.168.50',
@@ -200,7 +200,7 @@ def split_train_test(X_norm, y_norm, X_abnorm, y_abnorm, random_state=100):
     """
 
     # X_norm = sklearn.utils.shuffle(X_norm, random_state)
-    random.Random(random_state).shuffle(X_norm)
+    random.Random(random_state).shuffle(X_norm)  #注意此处打乱数据的作用
     size = int(len(y_norm) // 2) if len(y_norm) <= len(y_abnorm) else min(400, len(y_abnorm))
     X_test = X_norm[-size:] + X_abnorm[:size]
     y_test = y_norm[-size:] + y_abnorm[:size]
