@@ -42,7 +42,7 @@ def set_random_state(random_state=100):
 set_random_state(random_state=RANDOM_STATE)
 
 
-def raw2features(raw_features, header=True, MTU=1500, normalize=True):
+def raw2features(raw_features, data_type=True, MTU=1500, normalize=True):
     """Extract features for the detection model
 
     Parameters
@@ -64,10 +64,13 @@ def raw2features(raw_features, header=True, MTU=1500, normalize=True):
         feat_0 = v_lst[0]
         feat_i_lst = v_lst[1:]
 
-        if header:
+        if data_type == 'header':
+            tmp_v = [v['header'] for v in feat_i_lst]
+            tmp_v = [v + [0] * (40 - len(v)) if len(v) < 40 else v[:40] for v in tmp_v]
+        elif data_type == 'header_payload':
             tmp_v = [v['header'] + v['payload'] for v in feat_i_lst]
             tmp_v = [v + [0] * (MTU - len(v)) if len(v) < MTU else v[:MTU] for v in tmp_v]
-        else:
+        else:  # data_type=='payload':
             payload_len = MTU - 40
             tmp_v = [v['payload'] for v in feat_i_lst]
             tmp_v = [v + [0] * (payload_len - len(v)) if len(v) < payload_len else v[:payload_len] for v in tmp_v]
@@ -80,7 +83,7 @@ def raw2features(raw_features, header=True, MTU=1500, normalize=True):
     return X
 
 
-def load_flow_data(overwrite=False, random_state=100, full_flow=True):
+def load_flow_data(overwrite=False, random_state=100, full_flow=True, data_type='header'):
     """Get raw features from PCAP and store them into disk
 
     Parameters
@@ -101,8 +104,8 @@ def load_flow_data(overwrite=False, random_state=100, full_flow=True):
         # # # # # # #
         # # # # # # 'DS20_PU_SMTV/DS21-srcIP_10.42.0.1',
         # # # # # # # #
-        #'DS40_CTU_IoT/DS41-srcIP_10.0.2.15',
-         'DS40_CTU_IoT/DS42-srcIP_192.168.1.196',
+        'DS40_CTU_IoT/DS41-srcIP_10.0.2.15',
+        # 'DS40_CTU_IoT/DS42-srcIP_192.168.1.196',
         # # # # #
         # # # # # # 'DS50_MAWI_WIDE/DS51-srcIP_202.171.168.50',
         # # # 'DS50_MAWI_WIDE/DS51-srcIP_202.171.168.50',
@@ -175,9 +178,9 @@ def load_flow_data(overwrite=False, random_state=100, full_flow=True):
         out_abnorm_file = in_abnorm_file + '-raw_abnormal_features.dat'
         dump_data(abnorm_pp.features, out_abnorm_file)
 
-    X_norm = raw2features(load_data(out_norm_file), header=False)
+    X_norm = raw2features(load_data(out_norm_file), data_type=data_type)
     y_norm = [0] * len(X_norm)
-    X_abnorm = raw2features(load_data(out_abnorm_file), header=False)
+    X_abnorm = raw2features(load_data(out_abnorm_file), data_type=data_type)
     y_abnorm = [1] * len(X_abnorm)
 
     return split_train_test(X_norm, y_norm, X_abnorm, y_abnorm, random_state)
@@ -212,9 +215,10 @@ def split_train_test(X_norm, y_norm, X_abnorm, y_abnorm, random_state=100):
 
 
 def main(random_state=100):
-    X_train, y_train, X_test, y_test = load_flow_data(random_state=random_state)
-
-    rnn = RNN(n_epochs=100, in_dim=1460, out_dim=10, n_layers=1, lr=1e-3, bias=False, random_state=random_state)
+    data_type = 'payload'  # header, header_payload
+    X_train, y_train, X_test, y_test = load_flow_data(random_state=random_state, data_type=data_type)
+    in_dim = len(X_train[0][0])
+    rnn = RNN(n_epochs=100, in_dim=in_dim, out_dim=10, n_layers=1, lr=1e-3, bias=False, random_state=random_state)
 
     rnn.train(X_train=X_train, y_train=y_train, X_val=X_test, y_val=y_test, split=True)
 

@@ -251,9 +251,20 @@ def split_instance(X, y):
         v.append(_x)
         new_Xs.append(v)
         new_ys.append(y)
-    #print("length:"+str(len(new_Xs)))
+    # print("length:"+str(len(new_Xs)))
 
     return new_Xs, new_ys
+
+
+def MSELoss(outs, center):
+    res = 0.0
+    i = 0
+    for vs in outs:
+        for v in vs:
+            i += 1
+            res += torch.sqrt(torch.sum((center - v) ** 2))
+
+    return res / i
 
 
 class RNN:
@@ -298,6 +309,7 @@ class RNN:
 
         # self.criterion = nn.CrossEntropyLoss()
         self.criterion = nn.MSELoss()
+        # self.criterion = MSELoss
         self.random_state = random_state
         self.verbose = verbose
 
@@ -334,8 +346,8 @@ class RNN:
         c[(abs(c) < eps) & (c < 0)] = -eps
         c[(abs(c) < eps) & (c > 0)] = eps
 
-        print(f'centers: {c*3}')
-        return c*3
+        print(f'centers: {c * 1}')
+        return c *1
 
     def train(self, X_train, y_train=None, X_val=None, y_val=None, split=True):
         """Fit the lstm model
@@ -392,6 +404,7 @@ class RNN:
         self.centers = self.init_center_c(train_set, self.model)
         val_accs = []
         val_aucs = []
+        val_losses = []
         Rs = []
         for epoch in range(self.n_epochs):
             # shuffle the train set in each epoch
@@ -430,27 +443,40 @@ class RNN:
             train_losses.append(sum(epoch_loss) / (i + 1))
 
             # Evaluate the model on val set
-            if epoch % 2 == 0:
+            if epoch % 1 == 0:
                 self.R, dists = self.get_normal_thres(X_train, q=0.9)
                 self.val_test(X_val, y_val)
-                print('epoch: {}, epoch_loss: {}, val_acc: {}, val_auc: {}, R: {}'.format(epoch,
-                                                                                          sum(epoch_loss),
-                                                                                          self.val_acc,
-                                                                                          self.val_auc,
-                                                                                          self.R))
+                print('epoch: {}, epoch_loss: {}, val_acc: {}, val_auc: {}, R: {}, val_loss: {}'.format(epoch,
+                                                                                                        sum(epoch_loss),
+                                                                                                        self.val_acc,
+                                                                                                        self.val_auc,
+                                                                                                        self.R,
+                                                                                                        self.val_loss))
 
                 # turn on the model training mode again.
                 self.model.train()
                 val_accs.append(self.val_acc)
                 val_aucs.append(self.val_auc)
+                val_losses.append(self.val_loss)
                 Rs.append(self.R)
-        print("acc",val_accs)
+
+        print("train_losses", train_losses)
+        plt.figure(4)
+        plt.title('train_losses')
+        plt.plot(train_losses)
+
+        print("val_losses", val_losses)
+        plt.figure(5)
+        plt.title('val_losses')
+        plt.plot(val_losses)
+
+        print("acc", val_accs)
         plt.figure(1)
         print(val_accs)
         plt.title('ACC')
         plt.plot(val_accs)
-        
-        #plt.cla()
+
+        # plt.cla()
         plt.figure(2)
         plt.title('AUC')
         plt.plot(val_aucs)
@@ -518,6 +544,7 @@ class RNN:
         y_score = []
         # Iterate through test dataset one by one
         val_loader = zip(X_val, y_val)
+        val_loss = []
         for i, (images, labels) in enumerate(get_batch_data(val_loader, self.batch_size, last_batch=True)):
             # print(i, len(images))
             images = [Tensor(v) for v in images]
@@ -525,6 +552,9 @@ class RNN:
 
             # Forward pass only to get output
             outputs = self.model(images)
+            loss = self.criterion(outputs, self.centers.repeat(repeats=(len(images), 1)))
+            loss.to(device=self.device)
+            val_loss.append(loss.item())
 
             # the distance between outputs and centers
             if torch.cuda.is_available():
@@ -539,14 +569,14 @@ class RNN:
 
             # Total correct predictions
             # predicted = R[R > self.normal_thres ]
-            predicted = Tensor([1 if v < self.R else 0 for v in dists])
+            predicted = Tensor([0 if v < self.R else 1 for v in dists])
             if torch.cuda.is_available():
                 correct += (predicted.cpu() == labels.cpu()).sum()
             else:
                 correct += (predicted == labels).sum()
         # get accuracy
         self.val_acc = correct.item() / len(y_val)
-
+        self.val_loss = sum(val_loss) / (i +1)
         # get AUC
         fpr, tpr, _ = roc_curve(y_val, y_score, pos_label=1)
         self.val_auc = metrics.auc(fpr, tpr)
