@@ -251,9 +251,20 @@ def split_instance(X, y):
         v.append(_x)
         new_Xs.append(v)
         new_ys.append(y)
-    #print("length:"+str(len(new_Xs)))
+    # print("length:"+str(len(new_Xs)))
 
     return new_Xs, new_ys
+
+
+def MSELoss(outs, center):
+    res = 0.0
+    i = 0
+    for vs in outs:
+        for v in vs:
+            i += 1
+            res += torch.sqrt(torch.sum((center - v) ** 2))
+
+    return res / i
 
 
 class RNN:
@@ -298,6 +309,7 @@ class RNN:
 
         # self.criterion = nn.CrossEntropyLoss()
         self.criterion = nn.MSELoss()
+        # self.criterion = MSELoss
         self.random_state = random_state
         self.verbose = verbose
 
@@ -312,7 +324,7 @@ class RNN:
 
         c = torch.zeros(self.out_dim, device=self.device)
 
-        net.eval()
+       # net.eval()
         with torch.no_grad():
             for i, (images, labels) in enumerate(get_batch_data(train_loader, self.batch_size)):
                 # print(f'i: {i}, len(labels): {len(labels)}')
@@ -334,8 +346,8 @@ class RNN:
         c[(abs(c) < eps) & (c < 0)] = -eps
         c[(abs(c) < eps) & (c > 0)] = eps
 
-        print(f'centers: {c*3}')
-        return c*3
+        print(f'centers: {c * 1}')
+        return c *1
 
     def train(self, X_train, y_train=None, X_val=None, y_val=None, split=True):
         """Fit the lstm model
@@ -392,6 +404,7 @@ class RNN:
         self.centers = self.init_center_c(train_set, self.model)
         val_accs = []
         val_aucs = []
+        val_losses = []
         Rs = []
         for epoch in range(self.n_epochs):
             # shuffle the train set in each epoch
@@ -430,34 +443,66 @@ class RNN:
             train_losses.append(sum(epoch_loss) / (i + 1))
 
             # Evaluate the model on val set
-            if epoch % 2 == 0:
+            if epoch % 1 == 0:
                 self.R, dists = self.get_normal_thres(X_train, q=0.9)
                 self.val_test(X_val, y_val)
-                print('epoch: {}, epoch_loss: {}, val_acc: {}, val_auc: {}, R: {}'.format(epoch,
-                                                                                          sum(epoch_loss),
-                                                                                          self.val_acc,
-                                                                                          self.val_auc,
-                                                                                          self.R))
+                print('epoch: {}, epoch_loss: {}, val_acc: {}, val_auc: {}, R: {}, val_loss: {}'.format(epoch,
+                                                                                                        sum(epoch_loss),
+                                                                                                        self.val_acc,
+                                                                                                        self.val_auc,
+                                                                                                        self.R,
+                                                                                                        self.val_loss))
 
                 # turn on the model training mode again.
                 self.model.train()
                 val_accs.append(self.val_acc)
                 val_aucs.append(self.val_auc)
+                val_losses.append(self.val_loss)
                 Rs.append(self.R)
-        print("acc",val_accs)
+
+        print("train_losses")
+        plt.figure(4)
+        plt.title('train_losses')
+        plt.plot(train_losses)
+        plt.savefig('./train_losses.jpg')
+
+        print("val_losses")
+        plt.figure(5)
+        plt.title('val_losses')
+        plt.plot(val_losses)
+        plt.savefig('./val_losses.jpg')
+
+        print("val_losses_train_losses")
+        plt.figure(6)
+        plt.title('val_losses and train_losses')
+        plt.plot(val_losses,label = 'val_losses')
+        plt.plot(train_losses,label = 'train_losses')
+        plt.savefig('./val_losses_train_losses.jpg')
+        
+        print("acc", val_accs)
         plt.figure(1)
-        print(val_accs)
+        #print(val_accs)
         plt.title('ACC')
         plt.plot(val_accs)
-        
-        #plt.cla()
+        plt.savefig('./ACC.jpg')
+
+        # plt.cla()
         plt.figure(2)
         plt.title('AUC')
         plt.plot(val_aucs)
+        plt.savefig('./AUC.jpg')
+
+        plt.figure(7)
+        plt.title('AUC and ACC')
+        plt.plot(val_aucs,label = 'val_aucs')
+        plt.plot(val_accs,label = 'val_accs')
+        plt.savefig('./AUC_ACC.jpg')
+
         #plt.cla()
         plt.figure(3)
         plt.title('R')
         plt.plot(Rs)
+        plt.savefig('./R.jpg')
         #plt.cla()
         # get the normal threshold from train set
         self.R, self.normal_dists = self.get_normal_thres(X_train, q=0.9)
@@ -518,6 +563,7 @@ class RNN:
         y_score = []
         # Iterate through test dataset one by one
         val_loader = zip(X_val, y_val)
+        val_loss = []
         for i, (images, labels) in enumerate(get_batch_data(val_loader, self.batch_size, last_batch=True)):
             # print(i, len(images))
             images = [Tensor(v) for v in images]
@@ -525,6 +571,9 @@ class RNN:
 
             # Forward pass only to get output
             outputs = self.model(images)
+            loss = self.criterion(outputs, self.centers.repeat(repeats=(len(images), 1)))
+            loss.to(device=self.device)
+            val_loss.append(loss.item())
 
             # the distance between outputs and centers
             if torch.cuda.is_available():
@@ -539,14 +588,14 @@ class RNN:
 
             # Total correct predictions
             # predicted = R[R > self.normal_thres ]
-            predicted = Tensor([1 if v < self.R else 0 for v in dists])
+            predicted = Tensor([0 if v < self.R else 1 for v in dists])
             if torch.cuda.is_available():
                 correct += (predicted.cpu() == labels.cpu()).sum()
             else:
                 correct += (predicted == labels).sum()
         # get accuracy
         self.val_acc = correct.item() / len(y_val)
-
+        self.val_loss = sum(val_loss) / (i +1)
         # get AUC
         fpr, tpr, _ = roc_curve(y_val, y_score, pos_label=1)
         self.val_auc = metrics.auc(fpr, tpr)
@@ -563,6 +612,7 @@ class RNN:
 
         """
         find = False
+        norm_qs_lst = [0.5, 0.6, 0.7, 0.8, 0.9, 1]
         for i in range(len(self.norm_thre_lst)):
             if i == 0 and dist_x < self.norm_thre_lst[0]:
                 score = dist_x
@@ -573,7 +623,7 @@ class RNN:
                 find = True
                 score = dist_x
                 # normal confidence (1-self.norm_qs_list[i] - self.norm_qs_lst[0]) * 100
-                confidence = (self.norm_qs_list[i] - self.norm_qs_lst[0]) * 100  # abnormal confidence
+                confidence = (norm_qs_lst[i] - norm_qs_lst[0]) * 100  # abnormal confidence #这里报错，尝试修改
                 break
 
         if not find:
@@ -643,16 +693,28 @@ class RNN:
         failed_flows = []
 
         print("len of outputs:",len(outputs))
-        with open(r'D:\研一\异常流量检测\result.txt','a')as f:
+        with open(r'result.txt','a')as f:
             for i in outputs:
                 f.write(str(i)+'\n')
         #print("outputs:",outputs)
+        y_p = []
+
+        len_flow = []
+        len_need_flow = []
+        normal_dist = []
+        abnormal_dist = []
 
         for vs in outputs:
+            
+
             find_flg = False
             _scores = []
             k = 1
             v_b = 0
+            #print(len(vs))
+            
+            l = len(vs)
+                
             for j, v in enumerate(vs):  # res := [subflow1_res, subflow2_res,...] (for each flow)
                 _score, _confidence = self.score_function(v)
                 _scores.append([_score, _confidence])
@@ -660,14 +722,91 @@ class RNN:
                 # if v > R:
                 #     find_flg = True
                 #     break
-                v_b = v_b+v*k
-                #print(v)
-                #print(torch.sigmoid(torch.Tensor([v_b])))
-                print(torch.Tensor([v_b]))
-                if torch.sigmoid(torch.Tensor([v_b]))<=0.1:
+                #v_b = v_b+torch.tanh(torch.tensor([v*1e8*k]))
+                
+                
+                #print((v)/R)
+                
+                #v_b += torch.tanh(torch.tensor([v/R*k]))
+                
+                #print(v/R)
+#                 print(v_b)
+#                 print(v-R)
+#                 print(torch.tanh(torch.tensor([v/R*k])))
+                if l == 1 or k==5:
+                    if v >R:
+                        find_flg = True
+                        k+=1
+                        #print("1")
+                    break
+                
+                if v > R:
+                    #print("v<R！！！")
+                    #print(torch.tanh(torch.tensor([v*1e7*k])),k)
+                    
+                    v_b += torch.tanh(torch.tensor([v/R*k]))
+                    #print(v_b)
+#                 else :
+#                     #print("v>R！！！")
+#                     #print(torch.tanh(torch.tensor([v*1e7*k])),k)
+#                     v_b += torch.tanh(torch.tensor([v/R*k]))
+#                     #print(v_b)
+                
+                # R = 0.18
+                # [0.1] 
+                # [0.1,0.2] [0.1+0.2 = 0.3]
+                # [0.1,0.2,0.11] [0.3-0.11*2 = 0.08]
+                # [0.1,0.2,0.11,0.21]
+
+                # [0.1,0.15,0.16]  #case 1  
+                # 0.1 -0.05<0  normal
+
+                # [0.2,0.3,0.5]   #case 2
+                # 0.2 0.5 1.5>1  abnormal
+
+                # [0.1,0.2,0.3,0.4]    #case 3
+                # 0.1 0.3 0.9 2.1>1 abnormal
+
+                # [0.2,0.15,0.11,0.10]   #case 4
+                # 0.2 0.05 -0.17<0 normal
+
+                # [0.1,0.2,0.11,0.21,0.15]   #case 5
+                # 0.15  normal
+
+
+                # num_pkt<=5 
+                # timeout = 60
+
+                # v0+v1*1+v2*2
+
+
+                
+
+
+                #print(v_b)
+                # print(torch.sigmoid(torch.Tensor([v_b])))
+                # print(torch.Tensor([v_b]))
+                if v_b>1:
+                    #print("get v<R")
+                    #print(v,R)
+                    
                     find_flg = True
-                    break 
+                    k+=1
+                    break
+                #if v_b<0:
+                    #print("get v<R")
+                    #print(print(v,R))
+#                     if v<R:
+#                         print("V<R")
+#                     else:
+#                         print("V>R")
+                    #find_flg = True
+                    #break
                 k+=1
+            
+            len_flow.append(len(vs)) #每个flow有多少pkts
+            len_need_flow.append(k-1) #检测出来需要多少pkts
+
             #print(k)
 
             res = {'needed_ptks': j + 1, 'R': R, 'prob': v, 'find_flg': find_flg, 'time': 0, '_scores': _score}
@@ -675,9 +814,39 @@ class RNN:
 
             if res['find_flg']:
                 succeeded_flows.append(res['needed_ptks'])
+                abnormal_dist.append(vs[k-2]) #abnormal 的 distance
+                y_p.append(1)
             else:
                 failed_flows.append(res['needed_ptks'])
+                normal_dist.append(vs[k-2]) #normal 的 distance
+                y_p.append(0)
 
+        with open('len_flow.txt','a')as f:
+            f.write(str(len_flow)+'\n')
+            f.write(str(len_need_flow))
+
+        with open('dist_abnormal.txt','a')as f:
+            f.write(str(abnormal_dist))
+
+        with open('dist_normal.txt','a')as f:
+            f.write(str(normal_dist))
+
+        #print("真·ACC:")
+        print("ACC:",str(metrics.accuracy_score(y_test, y_p)))
+        
+        fpr, tpr, _ = roc_curve(y_test, y_p, pos_label=1)
+        auc = metrics.auc(fpr, tpr)
+        print("AUC：",str(auc))
+
+        print ("metrics.recall_score:")
+        print (metrics.recall_score(y_test, y_pred))
+        print("metrics.confusion_matrix:")
+        print(metrics.confusion_matrix(y_test, y_p))
+        
+        with open('ACC.txt','a')as f:
+            f.write(str(metrics.accuracy_score(y_test, y_p))+'\n'+str(metrics.auc(fpr, tpr))+'\n'+str(metrics.confusion_matrix(y_test, y_p)))
+
+        
         if len(succeeded_flows) > 0:
             print(f'average_needed_pkts: {np.mean(succeeded_flows)} +/- {np.std(succeeded_flows)} '
                   f'when R: {R}, succeeded_flows: {len(succeeded_flows)}, all_flows: {len(y_test)}')
@@ -693,19 +862,21 @@ class RNN:
         part_results = np.asarray([v[:min_flow_len] for v in outputs])
         
         for i in range(min_flow_len):
-            fpr, tpr, _ = roc_curve(y_test, part_results[:, i], pos_label=1)
-            auc = metrics.auc(fpr, tpr)
-            aucs.append(auc)
+            #AUC暂时不考虑
+
+            # fpr, tpr, _ = roc_curve(y_test, part_results[:, i], pos_label=1)
+            # auc = metrics.auc(fpr, tpr)
+            # aucs.append(auc)
 
             y_pred = [1 if v < self.R else 0 for v in part_results[:, i]]
             acc = metrics.accuracy_score(y_test, y_pred)
             print(acc)
             accs.append(acc)
-        print(accs)
-        plot_data(range(1, min_flow_len + 1), aucs, xlabel='num of packets in each flow', ylabel='auc', title='')
-        plot_data(range(1, min_flow_len + 1), accs, xlabel='num of packets in each flow', ylabel='accuracy', title='')
+        #print(accs)
+        # plot_data(range(1, min_flow_len + 1), aucs, xlabel='num of packets in each flow', ylabel='auc', title='')
+        # plot_data(range(1, min_flow_len + 1), accs, xlabel='num of packets in each flow', ylabel='accuracy', title='')
 
-        print(f'aucs: {aucs}')
+        #print(f'aucs: {aucs}')
         print(f'accs: {accs}')
 
 
