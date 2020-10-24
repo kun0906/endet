@@ -16,6 +16,8 @@ from model.rnn import RNN
 from pcap.parser import PCAP_PKTS, _pcap2flows
 from util.tool import dump_data, load_data
 
+from time import *
+
 RANDOM_STATE = 100
 
 cuda = True if torch.cuda.is_available() else False
@@ -42,7 +44,7 @@ def set_random_state(random_state=100):
 set_random_state(random_state=RANDOM_STATE)
 
 
-def raw2features(raw_features, header=True, MTU=1540, normalize=True):
+def raw2features(raw_features, data_type=True, MTU=1500, normalize=True):
     """Extract features for the detection model
 
     Parameters
@@ -64,10 +66,13 @@ def raw2features(raw_features, header=True, MTU=1540, normalize=True):
         feat_0 = v_lst[0]
         feat_i_lst = v_lst[1:]
 
-        if header:
+        if data_type == 'header':
+            tmp_v = [v['header'] for v in feat_i_lst]
+            tmp_v = [v + [0] * (40 - len(v)) if len(v) < 40 else v[:40] for v in tmp_v]
+        elif data_type == 'header_payload':
             tmp_v = [v['header'] + v['payload'] for v in feat_i_lst]
             tmp_v = [v + [0] * (MTU - len(v)) if len(v) < MTU else v[:MTU] for v in tmp_v]
-        else:
+        else:  # data_type=='payload':
             payload_len = MTU - 40
             tmp_v = [v['payload'] for v in feat_i_lst]
             tmp_v = [v + [0] * (payload_len - len(v)) if len(v) < payload_len else v[:payload_len] for v in tmp_v]
@@ -80,7 +85,7 @@ def raw2features(raw_features, header=True, MTU=1540, normalize=True):
     return X
 
 
-def load_flow_data(overwrite=False, random_state=100, full_flow=True):
+def load_flow_data(overwrite=False, random_state=100, full_flow=True, data_type='header'):
     """Get raw features from PCAP and store them into disk
 
     Parameters
@@ -119,7 +124,7 @@ def load_flow_data(overwrite=False, random_state=100, full_flow=True):
         #
         # # # # #
         # # # # # # 'DS60_UChi_IoT/DS61-srcIP_192.168.143.20',
-         #'DS60_UChi_IoT/DS62-srcIP_192.168.143.42',
+        # 'DS60_UChi_IoT/DS62-srcIP_192.168.143.42',
         # # # # 'DS60_UChi_IoT/DS63-srcIP_192.168.143.43',
         # # # # 'DS60_UChi_IoT/DS64-srcIP_192.168.143.48'
         #
@@ -128,7 +133,7 @@ def load_flow_data(overwrite=False, random_state=100, full_flow=True):
 
     dataset_name = datasets[0]
     print(f'dataset: {dataset_name}')
-    in_dir = '.'
+    in_dir = './examples/data/data_reprst/pcaps'
     if dataset_name == 'DS40_CTU_IoT/DS42-srcIP_192.168.1.196':
         in_norm_file = f'{in_dir}/{dataset_name}/2019-01-09-22-46-52-src_192.168.1.196_CTU_IoT_CoinMiner_anomaly.pcap'
         in_abnorm_file = f'{in_dir}/{dataset_name}/2018-12-21-15-50-14-src_192.168.1.195-CTU_IoT_Mirai_normal.pcap'
@@ -175,14 +180,12 @@ def load_flow_data(overwrite=False, random_state=100, full_flow=True):
         out_abnorm_file = in_abnorm_file + '-raw_abnormal_features.dat'
         dump_data(abnorm_pp.features, out_abnorm_file)
 
-    X_norm = raw2features(load_data(out_norm_file), header=False)
+    X_norm = raw2features(load_data(out_norm_file), data_type=data_type)
     y_norm = [0] * len(X_norm)
-    X_abnorm = raw2features(load_data(out_abnorm_file), header=False)
+    X_abnorm = raw2features(load_data(out_abnorm_file), data_type=data_type)
     y_abnorm = [1] * len(X_abnorm)
 
-    print(X_normlen(X_norm), len(y_norm), len(X_abnorm), len(y_abnorm))
-
-    return split_train_test( X_abnorm, y_abnorm,X_norm, y_norm, random_state)
+    return split_train_test(X_norm, y_norm, X_abnorm, y_abnorm, random_state)
 
 
 def split_train_test(X_norm, y_norm, X_abnorm, y_abnorm, random_state=100):
@@ -202,33 +205,34 @@ def split_train_test(X_norm, y_norm, X_abnorm, y_abnorm, random_state=100):
     """
 
     # X_norm = sklearn.utils.shuffle(X_norm, random_state)
-    random.Random(random_state).shuffle(X_norm)
+    random.Random(random_state).shuffle(X_norm)  #注意此处打乱数据的作用
     size = int(len(y_norm) // 2) if len(y_norm) <= len(y_abnorm) else min(400, len(y_abnorm))
+    size = 8800
     X_test = X_norm[-size:] + X_abnorm[:size]
     y_test = y_norm[-size:] + y_abnorm[:size]
     X_train = X_norm[:-size]
     y_train = y_norm[:-size]
-    print(len(y_test))
-    with open(r'D:\研一\异常流量检测\y.txt','a')as f:
-        f.write(str(y_test))
-
-        #text = f.readlines()
-    
-    
-    print("test_abnormal:",len(X_norm[-size:]),"test_normal",len(X_abnorm[:size]))
     print(f'X_train: {len(X_train)}, X_test: {len(X_test)}')
 
     return X_train, y_train, X_test, y_test
 
 
 def main(random_state=100):
-    X_train, y_train, X_test, y_test = load_flow_data(random_state=random_state)
-
-    rnn = RNN(n_epochs=100, in_dim=1500, out_dim=10, n_layers=1, lr=1e-3, bias=False, random_state=random_state)
+    data_type = 'payload'  # header, header_payload
+    X_train, y_train, X_test, y_test = load_flow_data(random_state=random_state, data_type=data_type)
+    in_dim = len(X_train[0][0])
+    rnn = RNN(n_epochs=100, in_dim=in_dim, out_dim=10, n_layers=1, lr=1e-3, bias=False, random_state=random_state)
 
     rnn.train(X_train=X_train, y_train=y_train, X_val=X_test, y_val=y_test, split=True)
+    
+    #计算test运行时间
+    begin_time = time()
 
     rnn.test(X_test=X_test, y_test=y_test, split=True)
+    
+    end_time = time()
+    run_time = end_time-begin_time
+    print("test time：",run_time)
 
 
 if __name__ == '__main__':
